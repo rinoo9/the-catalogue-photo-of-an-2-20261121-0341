@@ -4,9 +4,12 @@
 // Before copying, the PNG is validated so a corrupt or wrong-sized
 // image fails loudly instead of shipping silently: the 8-byte PNG
 // signature must match, the IHDR chunk must declare exactly 1024x1024,
-// and the file must stay within the bounty cap of 1 MiB. After writing,
-// the output is read back and compared byte for byte with the source.
-import { readFileSync, writeFileSync, mkdirSync } from 'node:fs';
+// the bit depth must be 8 and the colour type 2 (truecolour RGB), and
+// the file must stay within the bounty cap of 1 MiB — checked both
+// from the bytes read and from the on-disk size via statSync, so a
+// truncated or padded file cannot slip through. After writing, the
+// output is read back and compared byte for byte with the source.
+import { readFileSync, writeFileSync, mkdirSync, statSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -16,8 +19,17 @@ const EXPECTED_WIDTH = 1024;
 const EXPECTED_HEIGHT = 1024;
 const MAX_BYTES = 1024 * 1024;
 
-const png = readFileSync(join(here, 'entry.png'));
+const pngPath = join(here, 'entry.png');
+const png = readFileSync(pngPath);
 
+// The on-disk size must agree with the bytes read, and both must be
+// within the cap — a mismatch means the file changed mid-read.
+const onDiskBytes = statSync(pngPath).size;
+if (onDiskBytes !== png.length) {
+  throw new Error(
+    `entry.png: on-disk size ${onDiskBytes} differs from bytes read ${png.length}`,
+  );
+}
 if (png.length > MAX_BYTES) {
   throw new Error(
     `entry.png: ${png.length} bytes exceeds the 1 MiB cap`,
@@ -42,6 +54,15 @@ if (width !== EXPECTED_WIDTH || height !== EXPECTED_HEIGHT) {
     `entry.png: expected ${EXPECTED_WIDTH}x${EXPECTED_HEIGHT}, got ${width}x${height}`,
   );
 }
+// IHDR bytes 24 (bit depth) and 25 (colour type): the catalogue photo
+// is 8-bit truecolour RGB, so anything else is not this entry.
+const bitDepth = png[24];
+const colorType = png[25];
+if (bitDepth !== 8 || colorType !== 2) {
+  throw new Error(
+    `entry.png: expected bit depth 8 / colour type 2 (RGB), got ${bitDepth} / ${colorType}`,
+  );
+}
 
 mkdirSync(outDir, { recursive: true });
 const outPath = join(outDir, 'entry.png');
@@ -50,4 +71,4 @@ const written = readFileSync(outPath);
 if (!written.equals(png)) {
   throw new Error('entry.png: written bytes differ from source');
 }
-console.log(`entry.png written (${png.length} bytes, ${width}x${height})`);
+console.log(`entry.png written (${png.length} bytes, ${width}x${height}, bit depth ${bitDepth}, colour type ${colorType})`);
