@@ -26,7 +26,8 @@ lighting and cleaner catalogue typography:
   product listing photo.
 - **Why it is impossible** — a full moon cannot fit inside a glass
   cube, and no lamp runs on zero watts. The photo is staged as if it
-  could be bought anyway.
+  could be bought anyway: the moon is lit from within, the glass shows
+  a clean highlight and edge, and nothing in the frame admits the trick.
 
 ## How it runs
 
@@ -35,8 +36,12 @@ output directory, after validating the PNG signature, the 1024x1024
 IHDR dimensions, bit depth 8 / colour type 2 (RGB), and the 1 MiB size
 cap — the size is checked both from the bytes read and from the on-disk
 size via `statSync`, so a truncated or padded file cannot slip through
-— then reads the output back and compares it byte for byte. No network,
-no clock, no randomness — two runs write identical bytes.
+— and then walking the chunk chain to confirm the file carries at
+least one IDAT chunk of real image data and ends with a proper empty
+IEND terminator, so a header-only or truncated file fails loudly
+instead of shipping. It then reads the output back and compares it
+byte for byte. No network, no clock, no randomness — two runs write
+identical bytes.
 
 ## Files
 

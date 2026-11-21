@@ -4,11 +4,13 @@
 // Before copying, the PNG is validated so a corrupt or wrong-sized
 // image fails loudly instead of shipping silently: the 8-byte PNG
 // signature must match, the IHDR chunk must declare exactly 1024x1024,
-// the bit depth must be 8 and the colour type 2 (truecolour RGB), and
-// the file must stay within the bounty cap of 1 MiB — checked both
-// from the bytes read and from the on-disk size via statSync, so a
-// truncated or padded file cannot slip through. After writing, the
-// output is read back and compared byte for byte with the source.
+// the bit depth must be 8 and the colour type 2 (truecolour RGB), the
+// file must contain at least one IDAT chunk carrying the image data
+// and must end with a proper IEND terminator, and the file must stay
+// within the bounty cap of 1 MiB — checked both from the bytes read
+// and from the on-disk size via statSync, so a truncated or padded
+// file cannot slip through. After writing, the output is read back
+// and compared byte for byte with the source.
 import { readFileSync, writeFileSync, mkdirSync, statSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -62,6 +64,37 @@ if (bitDepth !== 8 || colorType !== 2) {
   throw new Error(
     `entry.png: expected bit depth 8 / colour type 2 (RGB), got ${bitDepth} / ${colorType}`,
   );
+}
+// Walk the chunk chain after IHDR: the file must contain at least one
+// IDAT chunk (the actual image data — a PNG with no IDAT decodes to
+// nothing) and must end with an IEND chunk. Any chunk whose declared
+// length would run past the end of the file means truncation.
+let offset = 8;
+let foundIdat = false;
+let foundIend = false;
+while (offset + 8 <= png.length) {
+  const chunkLen = png.readUInt32BE(offset);
+  const chunkType = png.toString('ascii', offset + 4, offset + 8);
+  if (offset + 12 + chunkLen > png.length) {
+    throw new Error(
+      `entry.png: chunk ${chunkType} at offset ${offset} is truncated (length ${chunkLen})`,
+    );
+  }
+  if (chunkType === 'IDAT') foundIdat = true;
+  if (chunkType === 'IEND') {
+    if (chunkLen !== 0) {
+      throw new Error(`entry.png: IEND chunk must be empty, got length ${chunkLen}`);
+    }
+    foundIend = true;
+    break;
+  }
+  offset += 12 + chunkLen;
+}
+if (!foundIdat) {
+  throw new Error('entry.png: no IDAT chunk found — file carries no image data');
+}
+if (!foundIend) {
+  throw new Error('entry.png: no IEND chunk found — file is truncated');
 }
 
 mkdirSync(outDir, { recursive: true });
